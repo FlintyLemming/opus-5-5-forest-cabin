@@ -8,6 +8,21 @@
 |---|---|
 | ![溪桥的倒影](docs/screenshots/creek-dusk.jpg) | ![月夜的门廊](docs/screenshots/porch-night.jpg) |
 
+## 由来
+
+这个项目由 Claude Opus 5.5 在 Claude Code 里生成，需求只有一句话：
+
+> 制作一个3D的 在森林中的农村小屋网页场景，要保证细节、电影感、画面协调舒适
+
+后面的过程由 Claude 自己的 harness 推进：
+
+1. 自主提出 4 个关键问题：画面风格、时间与光线、季节、镜头与交互。作者都选了推荐项。
+2. 写出完整的设计和实施计划，获批后开始实现。
+3. 自主完成场景的建模、着色器、后期、镜头、界面和环境声。
+4. 用无头浏览器逐个镜头截图自查，并反复调整画面。
+
+![在 Claude Code 中的对话过程](docs/screenshots/conversation.png)
+
 ## 打开
 
 用浏览器直接打开 `dist/forest-cabin.html`。
