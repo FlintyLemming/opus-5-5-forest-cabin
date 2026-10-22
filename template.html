@@ -1,0 +1,281 @@
+<title>林间木屋</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="初秋森林里的一间木屋：程序化生成的 3D 场景，电影运镜与自由环视，清晨、黄昏、月夜三种光线。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500&family=Noto+Serif+SC:wght@300;500&display=swap">
+<style>
+/* Layout: one full-bleed WebGL stage; a quiet HUD floats over it and keeps clear of safe areas.
+   Single dark visual world (a film frame), so every color is set explicitly here. */
+:root {
+  color-scheme: dark;
+  --ink: #0a0c0a;                       /* letterbox and loader ground, green-biased black */
+  --ink-raise: #161a15;
+  --paper: #efe5d3;                     /* warm off-white, like lamplit paper */
+  --paper-dim: rgba(239, 229, 211, 0.66);
+  --paper-faint: rgba(239, 229, 211, 0.16);
+  --ember: #e9a75f;                     /* porch-lantern amber, the one accent */
+  --glass: rgba(13, 16, 13, 0.52);
+  --sky-track: linear-gradient(90deg, #b9a5ad 0%, #93aec4 24%, #e3a35d 50%, #4c5683 74%, #1a2342 100%);
+  --font-display: "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif;
+  --font-ui: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --gutter-l: max(16px, env(safe-area-inset-left, 0px));
+  --gutter-r: max(16px, env(safe-area-inset-right, 0px));
+  --ease: cubic-bezier(.4, 0, .2, 1);
+}
+html, body { height: 100%; }
+body {
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+:focus-visible { outline: 2px solid var(--ember); outline-offset: 3px; }
+
+#stage {
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+  background: var(--ink);
+}
+#stage.dragging { cursor: grabbing; }
+
+/* Loader */
+#loader {
+  position: fixed; inset: 0; z-index: 30;
+  display: grid; place-items: center;
+  background: var(--ink);
+  transition: opacity 1.8s var(--ease);
+}
+#loader.done { opacity: 0; pointer-events: none; }
+.loader-inner { display: grid; justify-items: center; gap: 22px; padding-inline: var(--gutter-l) var(--gutter-r); }
+.loader-title {
+  margin: 0;
+  font-family: var(--font-display); font-weight: 300;
+  font-size: clamp(28px, 6vw, 44px);
+  letter-spacing: 0.5em; padding-left: 0.5em;
+}
+.loader-line { width: min(240px, 60vw); height: 1px; background: var(--paper-faint); overflow: hidden; }
+.loader-line i { display: block; height: 100%; background: var(--ember); transform-origin: left; transform: scaleX(0); transition: transform .5s var(--ease); }
+#loader-text { margin: 0; min-height: 1.6em; font-size: 13px; color: var(--paper-dim); letter-spacing: 0.24em; padding-left: 0.24em; }
+
+/* Title card over the opening shot */
+#titlecard {
+  position: fixed; left: 0; right: 0; top: 46%; z-index: 5;
+  transform: translateY(-50%);
+  display: grid; justify-items: center; gap: 18px;
+  padding-inline: var(--gutter-l) var(--gutter-r);
+  pointer-events: none;
+  opacity: 0; transition: opacity 2.6s var(--ease);
+  text-shadow: 0 1px 28px rgba(0, 0, 0, 0.45);
+}
+#titlecard.show { opacity: 1; }
+#titlecard h1 {
+  margin: 0;
+  font-family: var(--font-display); font-weight: 300;
+  font-size: clamp(34px, 7vw, 76px);
+  letter-spacing: 0.6em; padding-left: 0.6em;
+  text-wrap: balance;
+}
+#titlecard p { margin: 0; font-size: 13px; letter-spacing: 0.5em; padding-left: 0.5em; color: var(--paper-dim); }
+
+/* Shot slate, sits in the upper letterbox bar */
+#slate {
+  position: fixed; z-index: 6;
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  left: var(--gutter-l);
+  font-size: 12px; letter-spacing: 0.28em;
+  color: var(--paper-dim);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  transition: opacity .8s var(--ease);
+}
+
+/* Free-mode hint */
+#hint {
+  position: fixed; left: 0; right: 0; z-index: 9;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 92px);
+  text-align: center; font-size: 12px; letter-spacing: 0.2em; color: var(--paper-dim);
+  padding-inline: var(--gutter-l) var(--gutter-r);
+  pointer-events: none;
+  transition: opacity .8s var(--ease);
+}
+
+/* Control bar */
+#hud {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: flex; justify-content: center;
+  padding-left: var(--gutter-l); padding-right: var(--gutter-r);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+  pointer-events: none;
+  transition: opacity .7s var(--ease), transform .7s var(--ease);
+}
+.idle #hud, .idle #slate { opacity: 0; }
+.idle #hud { transform: translateY(8px); }
+.idle #stage { cursor: none; }
+.hide-ui #hud, .hide-ui #slate, .hide-ui #hint { opacity: 0; pointer-events: none; }
+.hide-ui #hud * { pointer-events: none; }
+
+#bar {
+  pointer-events: auto;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: 10px 14px;
+  max-width: 100%;
+  padding: 8px 12px;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  backdrop-filter: blur(16px) saturate(1.15);
+  border: 1px solid var(--paper-faint);
+  border-radius: 14px;
+}
+.group { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sep { width: 1px; height: 22px; background: var(--paper-faint); }
+
+button, select {
+  font: inherit; color: var(--paper);
+  background: transparent; border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.seg { display: flex; padding: 2px; border-radius: 9px; background: rgba(239, 229, 211, 0.07); }
+.seg button { padding: 5px 12px; font-size: 13px; letter-spacing: 0.12em; color: var(--paper-dim); transition: background .3s, color .3s; }
+.seg button[aria-pressed="true"] { background: rgba(239, 229, 211, 0.14); color: var(--paper); }
+.seg button:hover { color: var(--paper); }
+
+.icon { display: grid; place-items: center; width: 34px; height: 34px; color: var(--paper-dim); transition: color .3s, background .3s; }
+.icon:hover, .icon[aria-pressed="true"] { color: var(--paper); background: rgba(239, 229, 211, 0.08); }
+.icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+#sound .wave { opacity: 0; transition: opacity .3s; }
+#sound[aria-pressed="true"] .wave { opacity: 1; }
+#sound[aria-pressed="true"] .mute { opacity: 0; }
+
+.time { display: grid; gap: 2px; width: 248px; max-width: 100%; }
+.ticks { display: flex; justify-content: space-between; }
+.ticks button { padding: 2px 4px; font-size: 12px; letter-spacing: 0.14em; color: var(--paper-dim); transition: color .3s; }
+.ticks button.near { color: var(--paper); }
+#time { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; margin: 0; background: transparent; cursor: pointer; }
+#time::-webkit-slider-runnable-track { height: 3px; border-radius: 3px; background: var(--sky-track); }
+#time::-moz-range-track { height: 3px; border-radius: 3px; background: var(--sky-track); }
+#time::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 13px; height: 13px; margin-top: -5px; border-radius: 50%;
+  background: var(--paper); border: 0;
+  box-shadow: 0 0 0 4px rgba(239, 229, 211, 0.16), 0 1px 6px rgba(0, 0, 0, 0.4);
+}
+#time::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%; background: var(--paper); border: 0; box-shadow: 0 0 0 4px rgba(239, 229, 211, 0.16); }
+
+.select-wrap { position: relative; display: flex; align-items: center; }
+#quality {
+  -webkit-appearance: none; appearance: none;
+  padding: 6px 26px 6px 10px; font-size: 13px; letter-spacing: 0.1em;
+  color: var(--paper-dim);
+  background: rgba(239, 229, 211, 0.07);
+}
+#quality:hover { color: var(--paper); }
+#quality option { color: #1a1a1a; background: #efe5d3; }
+.select-wrap::after {
+  content: ""; position: absolute; right: 10px; top: 50%;
+  width: 6px; height: 6px; margin-top: -5px;
+  border-right: 1.5px solid var(--paper-dim); border-bottom: 1.5px solid var(--paper-dim);
+  transform: rotate(45deg); pointer-events: none;
+}
+
+/* Error panel */
+#error {
+  position: fixed; inset: 0; z-index: 40;
+  display: grid; place-items: center;
+  padding-inline: var(--gutter-l) var(--gutter-r);
+  background: var(--ink);
+}
+.error-card { max-width: 30em; display: grid; gap: 14px; justify-items: start; }
+.error-card h2 { margin: 0; font-family: var(--font-display); font-weight: 500; font-size: 22px; letter-spacing: 0.1em; }
+.error-card p { margin: 0; line-height: 1.8; color: var(--paper-dim); }
+#error-reload { margin-top: 6px; padding: 8px 18px; border: 1px solid var(--paper-faint); color: var(--paper); letter-spacing: 0.15em; }
+#error-reload:hover { background: rgba(239, 229, 211, 0.08); }
+
+@media (max-width: 620px) {
+  #bar { gap: 8px 10px; padding: 8px 10px; }
+  .sep { display: none; }
+  .time { order: 10; width: 100%; flex-basis: 100%; }
+  #hint { bottom: calc(env(safe-area-inset-bottom, 0px) + 136px); }
+  #slate { font-size: 11px; }
+}
+.no-anim, .no-anim * { transition: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  #loader, #titlecard, #hud, #slate, #hint { transition-duration: .2s; }
+}
+</style>
+
+<canvas id="stage" aria-label="林间木屋三维场景：初秋森林空地上的一间原木小屋"></canvas>
+
+<div id="titlecard" aria-hidden="true">
+  <h1>林间木屋</h1>
+  <p><span id="title-season">初秋</span> · <span id="title-time">黄昏</span></p>
+</div>
+
+<div id="slate" aria-hidden="true"></div>
+<div id="hint" hidden></div>
+
+<div id="hud">
+  <nav id="bar" aria-label="场景控制">
+    <div class="seg" role="group" aria-label="镜头模式">
+      <button id="mode-cine" type="button" aria-pressed="true" title="自动播放电影镜头">电影</button>
+      <button id="mode-free" type="button" aria-pressed="false" title="自由环视（拖动画面也可进入）">漫游</button>
+    </div>
+    <span class="sep" aria-hidden="true"></span>
+    <div class="time">
+      <input id="time" type="range" min="0" max="2" step="0.001" value="1" aria-label="时间：清晨、黄昏、月夜" aria-valuetext="黄昏">
+      <div class="ticks">
+        <button type="button" data-time="0">清晨</button>
+        <button type="button" data-time="1">黄昏</button>
+        <button type="button" data-time="2">月夜</button>
+      </div>
+    </div>
+    <span class="sep" aria-hidden="true"></span>
+    <div class="group">
+      <button id="sound" class="icon" type="button" aria-pressed="false" title="环境声" aria-label="环境声">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="wave" d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.8 7.8 0 0 1 0 11"/><path class="mute" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+      </button>
+      <div class="select-wrap">
+        <select id="quality" aria-label="画质">
+          <option value="low">流畅</option>
+          <option value="medium">均衡</option>
+          <option value="high">精致</option>
+        </select>
+      </div>
+      <button id="hide-ui" class="icon" type="button" title="隐藏界面（H），轻点画面恢复" aria-label="隐藏界面">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.3-6 9-6 9 6 9 6-3.3 6-9 6-9-6-9-6z"/><circle cx="12" cy="12" r="2.6"/><path d="M4 20L20 4"/></svg>
+      </button>
+      <button id="fullscreen" class="icon" type="button" title="全屏（F）" aria-label="全屏">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg>
+      </button>
+    </div>
+  </nav>
+</div>
+
+<div id="loader" role="status" aria-live="polite">
+  <div class="loader-inner">
+    <h1 class="loader-title">林间木屋</h1>
+    <div class="loader-line"><i id="loader-fill"></i></div>
+    <p id="loader-text">铺展地形</p>
+  </div>
+</div>
+
+<div id="error" hidden role="alert">
+  <div class="error-card">
+    <h2>场景没能显示</h2>
+    <p id="error-text"></p>
+    <button id="error-reload" type="button">重新加载</button>
+  </div>
+</div>
+
+<script type="module">
+/*__SCRIPT__*/
+</script>
